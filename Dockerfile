@@ -9,26 +9,25 @@ RUN apt-get update && apt-get install -y \
     && a2dismod mpm_event mpm_worker || true \
     && a2enmod mpm_prefork
 
-# Copy and run MPM patch
-COPY mpm-patch.sh /usr/local/bin/mpm-patch.sh
-RUN chmod +x /usr/local/bin/mpm-patch.sh && /usr/local/bin/mpm-patch.sh
+# 2. Install WP-CLI
+RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
+    && chmod +x wp-cli.phar \
+    && mv wp-cli.phar /usr/local/bin/wp
 
 # 3. Create Custom Entrypoint (INLINE to avoid Windows CRLF issues)
-RUN echo '#!/bin/bash\n\
+# We use printf to ensure newlines are strictly \n
+RUN printf '#!/bin/bash\n\
     set -e\n\
     \n\
-    echo "� [ENTRY] Force-Fixing Apache MPM..."\n\
-    rm -f /etc/apache2/mods-enabled/mpm_event.load\n\
-    rm -f /etc/apache2/mods-enabled/mpm_event.conf\n\
-    rm -f /etc/apache2/mods-enabled/mpm_worker.load\n\
-    rm -f /etc/apache2/mods-enabled/mpm_worker.conf\n\
-    rm -f /etc/apache2/mods-enabled/mpm_prefork.load\n\
-    rm -f /etc/apache2/mods-enabled/mpm_prefork.conf\n\
-    # Enable prefork manually\n\
-    ln -s /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load\n\
-    ln -s /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf || true\n\
+    echo "🔧 [ENTRY] Force-Fixing Apache MPM..."\n\
+    # Use Apache commands to manage modules safely\n\
+    a2dismod mpm_event mpm_worker || true\n\
+    a2enmod mpm_prefork || true\n\
     \n\
-    echo "�🚀 [ENTRY] Starting WordPress..."\n\
+    # Verification\n\
+    ls -l /etc/apache2/mods-enabled/mpm_*.load || true\n\
+    \n\
+    echo "🚀 [ENTRY] Starting WordPress..."\n\
     \n\
     # Run init script in background\n\
     (\n\
@@ -42,7 +41,7 @@ RUN echo '#!/bin/bash\n\
     ' > /usr/local/bin/custom-entrypoint.sh && chmod +x /usr/local/bin/custom-entrypoint.sh
 
 # 4. Create Init Script (INLINE)
-RUN echo '#!/bin/bash\n\
+RUN printf '#!/bin/bash\n\
     set -u\n\
     \n\
     echo "🔎 [INIT] Waiting for DB..."\n\
