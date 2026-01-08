@@ -5,42 +5,38 @@ RUN apt-get update && apt-get install -y \
     default-mysql-client \
     less \
     unzip \
-    && rm -rf /var/lib/apt/lists/* \
-    && a2dismod mpm_event mpm_worker || true \
-    && a2enmod mpm_prefork
+    && rm -rf /var/lib/apt/lists/*
 
 # 2. Install WP-CLI
 RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
     && chmod +x wp-cli.phar \
     && mv wp-cli.phar /usr/local/bin/wp
 
-# 3. Create Custom Entrypoint (INLINE to avoid Windows CRLF issues)
-# We use printf to ensure newlines are strictly \n
+# 3. Neuter the official entrypoint
+# This replaces the final 'exec "$@"' with an echo, so it runs setup but doesn't start Apache.
+RUN sed -i 's/^exec "$@"/echo "Base entrypoint finished running"/' /usr/local/bin/docker-entrypoint.sh
+
+# 4. Create Custom Entrypoint (INLINE)
 RUN printf '#!/bin/bash\n\
-    set -e\n\
+    set -Eeuo pipefail\n\
+    \n\
+    echo "� [ENTRY] Running Official Entrypoint (Setup Only)..."\n\
+    # This will now copy files and config but NOT start Apache\n\
+    /usr/local/bin/docker-entrypoint.sh apache2-foreground\n\
     \n\
     echo "🔧 [ENTRY] Force-Fixing Apache MPM..."\n\
-    # Use Apache commands to manage modules safely\n\
     a2dismod mpm_event mpm_worker || true\n\
-    a2enmod mpm_prefork || true\n\
+    a2dismod mpm_prefork || true\n\
+    a2enmod mpm_prefork\n\
     \n\
-    # Verification\n\
-    ls -l /etc/apache2/mods-enabled/mpm_*.load || true\n\
-    \n\
-    echo "🚀 [ENTRY] Starting WordPress..."\n\
-    \n\
-    # Run init script in background\n\
-    (\n\
-    sleep 10\n\
+    echo "� [ENTRY] Running Custom Init..."\n\
     /usr/local/bin/init-wp.sh\n\
-    echo "✅ [INIT] Background task finished"\n\
-    ) > /proc/1/fd/1 2>/proc/1/fd/2 &\n\
     \n\
-    # Run official entrypoint\n\
-    exec docker-entrypoint.sh "$@"\n\
+    echo "🚀 [ENTRY] Starting Apache..."\n\
+    exec "$@"\n\
     ' > /usr/local/bin/custom-entrypoint.sh && chmod +x /usr/local/bin/custom-entrypoint.sh
 
-# 4. Create Init Script (INLINE)
+# 5. Create Init Script (INLINE)
 RUN printf '#!/bin/bash\n\
     set -u\n\
     \n\
@@ -50,21 +46,14 @@ RUN printf '#!/bin/bash\n\
     sleep 5\n\
     done\n\
     \n\
-    echo "🔎 [INIT] Waiting for WP Core files..."\n\
-    until [ -f /var/www/html/wp-settings.php ]; do\n\
-    echo "   ...files not copied yet"\n\
-    sleep 5\n\
-    done\n\
-    \n\
     if wp core is-installed --allow-root --path=/var/www/html; then\n\
     echo "✅ [INIT] Already installed"\n\
-    exit 0\n\
-    fi\n\
-    \n\
+    else\n\
     echo "⚙️ [INIT] Installing..."\n\
     wp core install --allow-root --path=/var/www/html --url="${WP_URL:-http://localhost}" --title="${WP_TITLE:-Pixie}" --admin_user="${WP_ADMIN_USER:-admin}" --admin_password="${WP_ADMIN_PASS:-admin123}" --admin_email="${WP_ADMIN_EMAIL:-admin@test.com}" --skip-email\n\
     wp theme install hello-elementor --activate --allow-root --path=/var/www/html\n\
     wp plugin install elementor --activate --allow-root --path=/var/www/html\n\
+    fi\n\
     echo "✅ [INIT] Complete"\n\
     ' > /usr/local/bin/init-wp.sh && chmod +x /usr/local/bin/init-wp.sh
 
