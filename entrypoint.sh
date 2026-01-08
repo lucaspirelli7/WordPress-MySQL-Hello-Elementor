@@ -1,23 +1,28 @@
 #!/bin/bash
 set -e
 
-# 1) Ejecutar entrypoint original (copia WP y crea wp-config si hay vars)
-docker-entrypoint.sh "$@" &
+echo "== Fix Apache MPM (force prefork) =="
 
-# 2) Esperar a que exista wp-load.php (señal de que WP ya está copiado)
-echo "Waiting for WordPress files..."
-for i in {1..60}; do
-  if [ -f /var/www/html/wp-load.php ]; then
-    echo "WordPress files detected."
-    break
-  fi
-  sleep 2
-done
+# 1) Deshabilitar los MPM que rompen
+a2dismod mpm_event mpm_worker >/dev/null 2>&1 || true
+a2enmod mpm_prefork >/dev/null 2>&1 || true
 
-# 3) Correr init una sola vez si existe
+# 2) Borrar restos que puedan quedar habilitados igual
+rm -f /etc/apache2/mods-enabled/mpm_event.* /etc/apache2/mods-enabled/mpm_worker.* || true
+
+# 3) Asegurar que prefork esté linkeado en mods-enabled
+ln -sf /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load || true
+if [ -f /etc/apache2/mods-available/mpm_prefork.conf ]; then
+  ln -sf /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf || true
+fi
+
+echo "MPMs enabled now:"
+apache2ctl -M 2>/dev/null | grep mpm || true
+
+# correr init una vez (si existe)
 if [ -f /docker-entrypoint-initwp.d/01-init.sh ]; then
   /docker-entrypoint-initwp.d/01-init.sh || true
 fi
 
-# 4) Traer al frente el proceso principal (apache)
-wait -n
+# seguir con el entrypoint original de WordPress
+exec docker-entrypoint.sh "$@"
