@@ -21,6 +21,21 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
+# ===== Esperar a que WP se copie (entrypoint original) =====
+echo "⏳ Esperando archivos de WordPress en ${WP_PATH}..."
+for i in $(seq 1 60); do
+  if [ -f "${WP_PATH}/wp-settings.php" ]; then
+    echo "✅ Archivos de WP detectados."
+    break
+  fi
+  sleep 2
+done
+
+if [ ! -f "${WP_PATH}/wp-settings.php" ]; then
+  echo "❌ Timeout esperando archivos de WP. Abortando init."
+  exit 1
+fi
+
 # ===== Variables de setup =====
 # Si no definís WP_URL, intentamos armarla desde Railway automáticamente
 # (si tenés dominio público en Railway)

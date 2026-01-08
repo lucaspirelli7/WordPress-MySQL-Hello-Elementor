@@ -21,9 +21,10 @@ fi
 echo "MPMs enabled now:"
 apache2ctl -M 2>/dev/null | grep mpm || true
 
-# correr init una vez (si existe)
+# correr init una vez (si existe) en background para no bloquear el inicio
 if [ -f /docker-entrypoint-initwp.d/01-init.sh ]; then
-  /docker-entrypoint-initwp.d/01-init.sh || true
+  echo "🚀 Launching background init script..."
+  nohup /docker-entrypoint-initwp.d/01-init.sh > /proc/1/fd/1 2>/proc/1/fd/2 &
 fi
 
 # seguir con el entrypoint original de WordPress
