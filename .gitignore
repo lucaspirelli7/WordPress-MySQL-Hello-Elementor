@@ -1,12 +1,35 @@
-node_modules
+# Reference/Downloaded Folders
+wordpress-railway-main/
+
+# Secrets and Environment
 .env
-wp-content/uploads/
-wp-content/upgrade/
-wp-content/cache/
-db_data/
-mysql_data/
-.vscode/
-.idea/
-*.log
+.env.local
+.env.*.local
+
+# Database Dumps
+*.sql
+*.sql.gz
+
+# System Files
 .DS_Store
 Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Node / Vendor
+node_modules/
+vendor/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# WordPress
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
