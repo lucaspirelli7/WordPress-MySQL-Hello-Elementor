@@ -55,7 +55,8 @@ RUN printf '#!/bin/bash\n\
     \n\
     echo "🔎 [INIT] Debug: HOST='\''$DB_HOST'\'' PORT='\''$DB_PORT'\'' USER='\''$DB_USER'\''"\n\
     echo "🔎 [INIT] Waiting for DB at $DB_HOST:$DB_PORT..."\n\
-    until mysqladmin ping -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS"; do\n\
+    # We add --skip-ssl to avoid self-signed certificate errors\n\
+    until mysqladmin ping -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS" --skip-ssl; do\n\
     echo "   ...db ping failed (retrying in 5s)..."\n\
     sleep 5\n\
     done\n\
