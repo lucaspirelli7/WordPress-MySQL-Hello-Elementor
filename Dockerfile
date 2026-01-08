@@ -48,14 +48,15 @@ RUN printf '#!/bin/bash\n\
     \n\
     # Parse Host and Port (Railway often sends host:port)\n\
     # Strip port if present\n\
-    DB_HOST=${RAW_DB_HOST%%:*}\n\
+    DB_HOST=${RAW_DB_HOST%%%%:*}\n\
     # Extract port if present, default to 3306\n\
     DB_PORT=${RAW_DB_HOST##*:}\n\
     if [ "$DB_PORT" = "$DB_HOST" ]; then DB_PORT=3306; fi\n\
     \n\
+    echo "🔎 [INIT] Debug: HOST='\''$DB_HOST'\'' PORT='\''$DB_PORT'\'' USER='\''$DB_USER'\''"\n\
     echo "🔎 [INIT] Waiting for DB at $DB_HOST:$DB_PORT..."\n\
-    until mysqladmin ping -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS" --silent; do\n\
-    echo "   ...db not ready (trying $DB_HOST:$DB_PORT)"\n\
+    until mysqladmin ping -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS"; do\n\
+    echo "   ...db ping failed (retrying in 5s)..."\n\
     sleep 5\n\
     done\n\
     \n\
