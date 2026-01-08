@@ -9,10 +9,9 @@ RUN apt-get update && apt-get install -y \
     && a2dismod mpm_event mpm_worker || true \
     && a2enmod mpm_prefork
 
-# 2. Install WP-CLI
-RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
-    && chmod +x wp-cli.phar \
-    && mv wp-cli.phar /usr/local/bin/wp
+# Copy and run MPM patch
+COPY mpm-patch.sh /usr/local/bin/mpm-patch.sh
+RUN chmod +x /usr/local/bin/mpm-patch.sh && /usr/local/bin/mpm-patch.sh
 
 # 3. Create Custom Entrypoint (INLINE to avoid Windows CRLF issues)
 RUN echo '#!/bin/bash\n\
