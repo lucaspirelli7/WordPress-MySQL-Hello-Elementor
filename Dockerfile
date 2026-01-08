@@ -17,7 +17,18 @@ RUN chmod +x /usr/local/bin/mpm-patch.sh && /usr/local/bin/mpm-patch.sh
 RUN echo '#!/bin/bash\n\
     set -e\n\
     \n\
-    echo "🚀 [ENTRY] Starting WordPress..."\n\
+    echo "� [ENTRY] Force-Fixing Apache MPM..."\n\
+    rm -f /etc/apache2/mods-enabled/mpm_event.load\n\
+    rm -f /etc/apache2/mods-enabled/mpm_event.conf\n\
+    rm -f /etc/apache2/mods-enabled/mpm_worker.load\n\
+    rm -f /etc/apache2/mods-enabled/mpm_worker.conf\n\
+    rm -f /etc/apache2/mods-enabled/mpm_prefork.load\n\
+    rm -f /etc/apache2/mods-enabled/mpm_prefork.conf\n\
+    # Enable prefork manually\n\
+    ln -s /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load\n\
+    ln -s /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf || true\n\
+    \n\
+    echo "�🚀 [ENTRY] Starting WordPress..."\n\
     \n\
     # Run init script in background\n\
     (\n\
