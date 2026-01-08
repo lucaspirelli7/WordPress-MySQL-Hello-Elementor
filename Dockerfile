@@ -1,23 +1,19 @@
+# Base WordPress
 FROM wordpress:php8.2-apache
 
-# Install dependencies required for the init script (mysql-client for ping, wp-cli)
-RUN apt-get update && apt-get install -y \
-    default-mysql-client \
-    less \
-    && rm -rf /var/lib/apt/lists/*
+# Traemos wp-cli desde la imagen oficial (sin apt, sin curl)
+FROM wpcli/wp-cli:php8.2 AS wpcli
 
-# Install WP-CLI
-RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
-    && chmod +x wp-cli.phar \
-    && mv wp-cli.phar /usr/local/bin/wp
+FROM wordpress:php8.2-apache
 
-# Copy init script and entrypoint
+# Copiamos wp-cli
+COPY --from=wpcli /usr/local/bin/wp /usr/local/bin/wp
+
+# Copiamos scripts
 COPY init/01-init.sh /usr/local/bin/run-init-tasks.sh
 COPY entrypoint.sh /usr/local/bin/custom-entrypoint.sh
 
-# Make them executable
 RUN chmod +x /usr/local/bin/run-init-tasks.sh /usr/local/bin/custom-entrypoint.sh
 
-# Set the custom entrypoint
 ENTRYPOINT ["custom-entrypoint.sh"]
 CMD ["apache2-foreground"]
