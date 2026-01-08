@@ -1,117 +1,90 @@
 #!/bin/bash
-set -euo pipefail
+set -u
 
-# ===== Requeridos DB =====
-: "${WORDPRESS_DB_HOST:?Missing WORDPRESS_DB_HOST}"
-: "${WORDPRESS_DB_NAME:?Missing WORDPRESS_DB_NAME}"
-: "${WORDPRESS_DB_USER:?Missing WORDPRESS_DB_USER}"
-: "${WORDPRESS_DB_PASSWORD:?Missing WORDPRESS_DB_PASSWORD}"
+# Allow some failures for checks, but be strict in general
+# We don't use set -e globally to handle timeouts gracefully
 
 WP_PATH="/var/www/html"
-MARKER_FILE="${WP_PATH}/wp-content/.pixie-init-done"
+LOCK_FILE="${WP_PATH}/.wp_init_complete"
 
-# Parse host:port
-DB_HOST="${WORDPRESS_DB_HOST%:*}"
-DB_PORT="${WORDPRESS_DB_HOST##*:}"
-if [ "$DB_HOST" = "$DB_PORT" ]; then DB_PORT="3306"; fi
+echo "==== [INIT] Starting Custom Initialization ===="
 
-echo "Waiting for DB TCP ${DB_HOST}:${DB_PORT}..."
-for i in $(seq 1 60); do
-  (echo >"/dev/tcp/${DB_HOST}/${DB_PORT}") >/dev/null 2>&1 && break
+# 1. Wait for Database
+echo "==== [INIT] Waiting for Database connection... ===="
+MAX_RETRIES=30
+count=0
+until mysqladmin ping -h"${WORDPRESS_DB_HOST}" -P"${WORDPRESS_DB_PORT:-3306}" -u"${WORDPRESS_DB_USER}" -p"${WORDPRESS_DB_PASSWORD}" --silent; do
+  echo "    ...waiting for DB (${count}/${MAX_RETRIES})"
   sleep 2
-done
-
-# ===== Esperar a que WP se copie (entrypoint original) =====
-echo "⏳ Esperando archivos de WordPress en ${WP_PATH}..."
-for i in $(seq 1 60); do
-  if [ -f "${WP_PATH}/wp-settings.php" ]; then
-    echo "✅ Archivos de WP detectados."
-    break
+  count=$((count+1))
+  if [ $count -ge $MAX_RETRIES ]; then
+    echo "==== [INIT] ❌ DB Timeout. Aborting init."
+    exit 1
   fi
-  sleep 2
 done
+echo "==== [INIT] ✅ Database Connected."
 
-if [ ! -f "${WP_PATH}/wp-settings.php" ]; then
-  echo "❌ Timeout esperando archivos de WP. Abortando init."
-  exit 1
+# 2. Wait for WordPress Files (copied by official entrypoint)
+echo "==== [INIT] Waiting for WordPress files... ===="
+count=0
+until [ -f "${WP_PATH}/wp-settings.php" ]; do
+  echo "    ...waiting for WP files (${count}/${MAX_RETRIES})"
+  sleep 4
+  count=$((count+1))
+  if [ $count -ge $MAX_RETRIES ]; then
+    echo "==== [INIT] ❌ WP Files Timeout. Aborting init."
+    exit 1
+  fi
+done
+echo "==== [INIT] ✅ WP Files Detected."
+
+# 3. Check if already initialized
+if [ -f "$LOCK_FILE" ] || wp core is-installed --allow-root --path="$WP_PATH"; then
+  echo "==== [INIT] ✅ WordPress is already installed. Skipping."
+  exit 0
 fi
 
-# ===== Variables de setup =====
-# Si no definís WP_URL, intentamos armarla desde Railway automáticamente
-# (si tenés dominio público en Railway)
+# 4. Install WordPress
+echo "==== [INIT] 🚀 Installing WordPress... ===="
+
+# Determine URL if not set
 if [ -z "${WP_URL:-}" ]; then
   if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
     WP_URL="https://${RAILWAY_PUBLIC_DOMAIN}"
   elif [ -n "${RAILWAY_STATIC_URL:-}" ]; then
-    WP_URL="${RAILWAY_STATIC_URL}"
+    WP_URL="https://${RAILWAY_STATIC_URL}"
   else
-    echo "ERROR: Missing WP_URL and no Railway domain found (RAILWAY_PUBLIC_DOMAIN/RAILWAY_STATIC_URL)."
-    exit 1
+    WP_URL="http://localhost:8000"
+    echo "==== [INIT] ⚠️ No WP_URL provided. Defaulting to ${WP_URL}"
   fi
 fi
 
-WP_TITLE="${WP_TITLE:-My Pixie WordPress}"
-WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
-WP_ADMIN_PASS="${WP_ADMIN_PASS:-admin123}"
-WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
-WP_LOCALE="${WP_LOCALE:-es_ES}"
-WP_TIMEZONE="${WP_TIMEZONE:-America/Argentina/Buenos_Aires}"
-
-# ===== Evitar re-ejecutar init si ya se hizo =====
-if [ -f "$MARKER_FILE" ]; then
-  echo "Init marker exists. Skipping."
-  exit 0
-fi
-
-# ===== Asegurar wp-config.php (clave para que wp funcione antes del entrypoint oficial) =====
-if [ ! -f "${WP_PATH}/wp-config.php" ]; then
-  echo "wp-config.php not found. Creating via WP-CLI..."
-  wp config create \
-    --allow-root \
-    --path="$WP_PATH" \
-    --dbname="$WORDPRESS_DB_NAME" \
-    --dbuser="$WORDPRESS_DB_USER" \
-    --dbpass="$WORDPRESS_DB_PASSWORD" \
-    --dbhost="$WORDPRESS_DB_HOST" \
-    --skip-check \
-    --force
-
-  # Ajustes útiles “base”
-  wp config set WP_DEBUG false --allow-root --path="$WP_PATH" --type=constant
-  wp config set FS_METHOD direct --allow-root --path="$WP_PATH" --type=constant
-fi
-
-# ===== Instalar WP si no está =====
-if wp core is-installed --allow-root --path="$WP_PATH"; then
-  echo "WP already installed."
-else
-  echo "Installing WordPress..."
-  wp core install \
+# Install Core
+if wp core install \
     --allow-root \
     --path="$WP_PATH" \
     --url="$WP_URL" \
-    --title="$WP_TITLE" \
-    --admin_user="$WP_ADMIN_USER" \
-    --admin_password="$WP_ADMIN_PASS" \
-    --admin_email="$WP_ADMIN_EMAIL"
+    --title="${WP_TITLE:-My Blog}" \
+    --admin_user="${WP_ADMIN_USER:-admin}" \
+    --admin_password="${WP_ADMIN_PASS:-password}" \
+    --admin_email="${WP_ADMIN_EMAIL:-admin@example.com}"; then
+    
+    echo "==== [INIT] ✅ Core Installed."
+else
+    echo "==== [INIT] ❌ Core Install Failed."
+    exit 1
 fi
 
-echo "Config basics..."
-wp language core install "$WP_LOCALE" --activate --allow-root --path="$WP_PATH"
-wp option update timezone_string "$WP_TIMEZONE" --allow-root --path="$WP_PATH"
+# 5. Configuration & Plugins
+echo "==== [INIT] Configuring Settings & Plugins..."
+wp language core install "${WP_LOCALE:-es_ES}" --activate --allow-root --path="$WP_PATH" || true
+wp option update timezone_string "${WP_TIMEZONE:-America/Argentina/Buenos_Aires}" --allow-root --path="$WP_PATH" || true
+wp rewrite structure "/%postname%/" --hard --allow-root --path="$WP_PATH" || true
 
-echo "Installing theme + plugins..."
-wp theme install hello-elementor --activate --allow-root --path="$WP_PATH"
-wp plugin install elementor --activate --allow-root --path="$WP_PATH"
+echo "==== [INIT] Installing Elementor & Hello Theme..."
+wp theme install hello-elementor --activate --allow-root --path="$WP_PATH" || true
+wp plugin install elementor --activate --allow-root --path="$WP_PATH" || true
 
-# Plugins base (ojo: Wordfence puede consumir bastante)
-wp plugin install wp-mail-smtp --activate --allow-root --path="$WP_PATH"
-wp plugin install autoptimize --activate --allow-root --path="$WP_PATH"
-wp plugin install updraftplus --activate --allow-root --path="$WP_PATH"
-wp plugin install wordfence --activate --allow-root --path="$WP_PATH"
-
-# Marker para no repetir
-mkdir -p "$(dirname "$MARKER_FILE")"
-touch "$MARKER_FILE"
-
-echo "Init done ✅"
+# Mark as done
+touch "$LOCK_FILE"
+echo "==== [INIT] ✅ Initialization Complete. ===="
